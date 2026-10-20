@@ -1,0 +1,17 @@
+player
+Frame size: 24x24 (death: 40x40, sprite centred so it plays in place)
+Faces RIGHT for player/boss/most enemies; flip_h as needed (see enemies_list.txt for left-facing ones).
+
+idle         2 frame(s)  loop 2fps
+run          4 frame(s)  loop 10fps
+run_shoot    4 frame(s)  loop 10fps
+jump         1 frame(s)  
+jump_shoot   1 frame(s)  
+fall         1 frame(s)  
+land         1 frame(s)  
+shoot        1 frame(s)  
+slide        1 frame(s)  
+climb        2 frame(s)  loop 6fps
+hurt         1 frame(s)  
+teleport_in  3 frame(s)  
+death        5 frame(s)  play once 12fps, then remove

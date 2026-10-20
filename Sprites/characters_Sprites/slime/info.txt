@@ -1,0 +1,8 @@
+slime
+Frame size: 24x24 (death: 40x40, sprite centred so it plays in place)
+Faces RIGHT for player/boss/most enemies; flip_h as needed (see enemies_list.txt for left-facing ones).
+
+idle         1 frame(s)  loop 2fps
+squash       1 frame(s)  
+stretch      1 frame(s)  
+death        5 frame(s)  play once 12fps, then remove

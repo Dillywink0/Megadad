@@ -1,0 +1,8 @@
+mole
+Frame size: 24x24 (death: 40x40, sprite centred so it plays in place)
+Faces RIGHT for player/boss/most enemies; flip_h as needed (see enemies_list.txt for left-facing ones).
+
+hidden       1 frame(s)  
+peek         1 frame(s)  
+pop_up       1 frame(s)  
+death        5 frame(s)  play once 12fps, then remove

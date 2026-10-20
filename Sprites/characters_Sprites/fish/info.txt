@@ -1,0 +1,6 @@
+fish
+Frame size: 24x24 (death: 40x40, sprite centred so it plays in place)
+Faces RIGHT for player/boss/most enemies; flip_h as needed (see enemies_list.txt for left-facing ones).
+
+swim         2 frame(s)  loop 6fps
+death        5 frame(s)  play once 12fps, then remove
