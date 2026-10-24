@@ -16,12 +16,13 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 
 config/name="Mega Base"
 config/description="NES-style 8 bit run and un platformer"
-run/main_scene="res://main.tscn"
+run/main_scene="uid://f05c4do2jmjx"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [autoload]
 
 GameManager="*uid://baq183t8ld65d"
+EventBus="*uid://dffscyfheitkl"
 
 [display]
 

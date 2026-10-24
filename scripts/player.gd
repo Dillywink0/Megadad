@@ -1,16 +1,16 @@
 class_name Player
 extends CharacterBody2D
-## Blue-bomber-style hero using structured character sprite assets, multi-frame death animations, and slide mechanics.
+## Hero character featuring coyote time, jump buffering, charge shots, slide, run-and-shoot frames, and EventBus integration.
 
 signal health_changed(hp: int, max_hp: int)
 signal damaged
 signal died
 
-const SPEED := 105.0
-const JUMP_VELOCITY := -300.0
+const SPEED := 130.0
+const JUMP_VELOCITY := -380.0
 const GRAVITY := 1000.0
 const MAX_FALL_SPEED := 400.0
-const MAX_HP := 28
+const MAX_HP := 10
 const INVULN_TIME := 1.0
 const KNOCKBACK_TIME := 0.3
 const MAX_BULLETS := 3
@@ -18,7 +18,12 @@ const SHOOT_POSE_TIME := 0.3
 const SLIDE_DURATION := 0.35
 const SLIDE_SPEED := 150.0
 
-const TARGET_HEIGHT := 24.0
+const TARGET_HEIGHT := 26.0
+
+const COYOTE_TIME := 0.12
+const JUMP_BUFFER_TIME := 0.1
+var coyote_timer := 0.0
+var jump_buffer_timer := 0.0
 
 var hp := MAX_HP
 var facing := 1
@@ -30,20 +35,26 @@ var dead := false
 var was_on_floor := true
 var is_sliding := false
 var slide_timer := 0.0
+var charge_time := 0.0
 
 var sprite: Sprite2D
 
-# Load character sprites from characters_Sprites/player/
 var tex_idle: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/idle_0.png")
 var tex_walk1: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/run_0.png")
 var tex_walk2: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/run_1.png")
 var tex_walk3: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/run_2.png")
 var tex_jump: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/jump_0.png")
 var tex_shoot: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/shoot_0.png")
-var tex_hurt: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/hurt_0.png")
 var tex_slide: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/slide_0.png")
+var tex_hurt: Texture2D = preload("res://Sprites/characters_Sprites/player/frames/hurt_0.png")
 
-# Multi-frame death animation sequence frames from characters_Sprites/player/frames/
+var tex_run_shoot_frames: Array[Texture2D] = [
+	preload("res://Sprites/characters_Sprites/player/frames/run_shoot_0.png"),
+	preload("res://Sprites/characters_Sprites/player/frames/run_shoot_1.png"),
+	preload("res://Sprites/characters_Sprites/player/frames/run_shoot_2.png"),
+	preload("res://Sprites/characters_Sprites/player/frames/run_shoot_3.png")
+]
+
 var tex_death_frames: Array[Texture2D] = [
 	preload("res://Sprites/characters_Sprites/player/frames/death_0.png"),
 	preload("res://Sprites/characters_Sprites/player/frames/death_1.png"),
@@ -54,18 +65,21 @@ var tex_death_frames: Array[Texture2D] = [
 
 
 func _ready() -> void:
-	collision_layer = 2  # layer 2: player
-	collision_mask = 1   # collides with layer 1: world
+	collision_layer = 2
+	collision_mask = 1
+	add_to_group("player")
 
+	# Hitbox: 12x24, bottom edge on the floor line (y = 0)
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(12, 22)
+	rect.size = Vector2(12, 24)
 	shape.shape = rect
-	shape.position = Vector2(0, -11)
+	shape.position = Vector2(0, -12)
 	add_child(shape)
 
+	# Sprite: 26px tall, bottom edge on the floor line (y = 0)
 	sprite = Sprite2D.new()
-	sprite.position = Vector2(0, -12)
+	sprite.position = Vector2(0, -13)
 	add_child(sprite)
 	_set_sprite_texture(tex_idle)
 
@@ -78,10 +92,18 @@ func _physics_process(delta: float) -> void:
 	knockback = maxf(knockback - delta, 0.0)
 	shoot_pose = maxf(shoot_pose - delta, 0.0)
 
+	if is_on_floor():
+		coyote_timer = COYOTE_TIME
+	else:
+		coyote_timer = maxf(coyote_timer - delta, 0.0)
+
+	jump_buffer_timer = maxf(jump_buffer_timer - delta, 0.0)
+	if Input.is_action_just_pressed("jump"):
+		jump_buffer_timer = JUMP_BUFFER_TIME
+
 	velocity.y = minf(velocity.y + GRAVITY * delta, MAX_FALL_SPEED)
 
 	if knockback <= 0.0:
-		# Slide Input check (Down + Jump while moving on floor)
 		if Input.is_action_just_pressed("jump") and Input.is_action_pressed("ui_down") and is_on_floor() and not is_sliding:
 			is_sliding = true
 			slide_timer = SLIDE_DURATION
@@ -95,16 +117,27 @@ func _physics_process(delta: float) -> void:
 			var dir := signf(Input.get_axis("move_left", "move_right"))
 			velocity.x = dir * SPEED
 			if dir != 0.0:
-				facing = 1 if dir > 0.0 else -1
+				facing = int(1 if dir > 0.0 else -1)
 
-			if Input.is_action_just_pressed("jump") and is_on_floor():
+			if jump_buffer_timer > 0.0 and coyote_timer > 0.0:
 				velocity.y = JUMP_VELOCITY
+				jump_buffer_timer = 0.0
+				coyote_timer = 0.0
 				GameManager.play_sound("jump")
+
 			if Input.is_action_just_released("jump") and velocity.y < 0.0:
 				velocity.y = 0.0
 
-		if Input.is_action_just_pressed("shoot"):
-			_shoot()
+		if Input.is_action_pressed("shoot"):
+			charge_time += delta
+		elif Input.is_action_just_released("shoot"):
+			if charge_time >= 1.0:
+				_shoot(2)
+			elif charge_time >= 0.4:
+				_shoot(1)
+			else:
+				_shoot(0)
+			charge_time = 0.0
 
 	move_and_slide()
 
@@ -135,6 +168,9 @@ func _update_sprites() -> void:
 		active_texture = tex_slide
 	elif not is_on_floor():
 		active_texture = tex_jump
+	elif shoot_pose > 0.0 and absf(velocity.x) > 1.0 and is_on_floor():
+		var run_shoot_idx := int(anim_time * 12.0) % tex_run_shoot_frames.size()
+		active_texture = tex_run_shoot_frames[run_shoot_idx]
 	elif shoot_pose > 0.0:
 		active_texture = tex_shoot
 	elif absf(velocity.x) > 1.0:
@@ -157,11 +193,13 @@ func _set_sprite_texture(tex: Texture2D) -> void:
 		sprite.scale = Vector2(s, s)
 
 
-func _shoot() -> void:
+func _shoot(tier: int = 0) -> void:
 	if get_tree().get_nodes_in_group("player_bullets").size() >= MAX_BULLETS:
 		return
+
 	var bullet := Bullet.new()
 	bullet.direction = facing
+	bullet.charge_tier = tier
 	get_parent().add_child(bullet)
 	bullet.global_position = global_position + Vector2(facing * 12, -13)
 	shoot_pose = SHOOT_POSE_TIME
@@ -173,9 +211,10 @@ func _spawn_landing_dust() -> void:
 		return
 	for i in range(4):
 		var p_vel := Vector2(randf_range(-40, 40), randf_range(-20, -5))
-		var particle := PixelParticle.new(p_vel, Color(0.8, 0.8, 0.8), 2.0)
-		particle.global_position = global_position
-		get_parent().add_child(particle)
+		if ClassDB.class_exists("PixelParticle"):
+			var particle := PixelParticle.new(p_vel, Color(0.8, 0.8, 0.8), 2.0)
+			particle.global_position = global_position
+			get_parent().add_child(particle)
 
 
 func heal(amount: int) -> void:
@@ -184,6 +223,7 @@ func heal(amount: int) -> void:
 	hp = mini(hp + amount, MAX_HP)
 	GameManager.player_health = hp
 	health_changed.emit(hp, MAX_HP)
+	EventBus.update_player_health(hp, MAX_HP)
 
 
 func hurt(amount: int, from_x: float) -> void:
@@ -193,6 +233,7 @@ func hurt(amount: int, from_x: float) -> void:
 	GameManager.player_health = hp
 	GameManager.play_sound("hit")
 	health_changed.emit(hp, MAX_HP)
+	EventBus.update_player_health(hp, MAX_HP)
 	damaged.emit()
 
 	if hp == 0:
@@ -214,6 +255,7 @@ func kill() -> void:
 	GameManager.player_health = hp
 	GameManager.play_sound("hit")
 	health_changed.emit(hp, MAX_HP)
+	EventBus.update_player_health(hp, MAX_HP)
 	_die()
 
 
@@ -229,17 +271,16 @@ func unfreeze() -> void:
 func _die() -> void:
 	dead = true
 	visible = false
-	
-	# Spawn animated multi-frame player death sequence
+
 	var parent := get_parent()
 	if parent:
 		var death_sprite := Sprite2D.new()
-		death_sprite.global_position = global_position + Vector2(0, -12)
+		death_sprite.global_position = global_position + Vector2(0, -13)
 		parent.add_child(death_sprite)
-		
+
 		for f in range(tex_death_frames.size()):
 			var frame_tex = tex_death_frames[f]
-			var delay = f * 0.08 # ~12 fps pacing
+			var delay = f * 0.08
 			get_tree().create_timer(delay).timeout.connect(func():
 				if is_instance_valid(death_sprite):
 					death_sprite.texture = frame_tex
@@ -248,8 +289,9 @@ func _die() -> void:
 						var s = TARGET_HEIGHT / float(h)
 						death_sprite.scale = Vector2(s, s)
 			)
-			
+
 		var final_timer := get_tree().create_timer(0.45)
 		final_timer.timeout.connect(func(): if is_instance_valid(death_sprite): death_sprite.queue_free())
 
 	died.emit()
+	EventBus.notify_player_died()

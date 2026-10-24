@@ -39,6 +39,10 @@ var checkpoint_spawns: Array[Vector2] = []
 var breakable_spawns: Array[Vector2i] = []
 var platform_spawns: Array[Dictionary] = []
 
+var music_player: AudioStreamPlayer
+# Updated to use Track_V1.wav for level background music
+var bg_track: AudioStream = preload("res://Sound Effects/Track_V1.wav")
+
 # Preload tile textures
 var tex_brick: Texture2D = preload("res://Sprites/tiles/brick_tile.png")
 var tex_metal: Texture2D = preload("res://Sprites/tiles/metal_block.png")
@@ -50,6 +54,7 @@ var tex_spikes: Texture2D = preload("res://Sprites/tiles/spikes.png")
 
 
 func _ready() -> void:
+	_setup_background_music()
 	_parse_map()
 	_build_collision()
 	_build_hazards()
@@ -62,6 +67,13 @@ func _ready() -> void:
 
 	if GameManager.checkpoint_pos != Vector2.ZERO:
 		spawn_point = GameManager.checkpoint_pos
+
+
+func _setup_background_music() -> void:
+	music_player = AudioStreamPlayer.new()
+	music_player.stream = bg_track
+	add_child(music_player)
+	music_player.play()
 
 
 func _parse_map() -> void:
@@ -200,7 +212,11 @@ func _spawn_enemies() -> void:
 	for data in enemy_spawns:
 		var enemy := Enemy.new()
 		enemy.position = data["pos"]
-		enemy.enemy_variant = data["variant"]
+		
+		# Safe assignment matching declared property type
+		if "enemy_variant" in enemy:
+			enemy.enemy_variant = int(data["variant"])
+			
 		add_child(enemy)
 
 

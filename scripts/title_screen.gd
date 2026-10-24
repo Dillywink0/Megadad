@@ -1,49 +1,83 @@
 class_name TitleScreen
 extends Control
-## 8-bit NES-style title screen with a blinking press-start prompt.
 
-signal start_game
+# Direct function reference passed from Main
+var start_callback: Callable
 
-var title_label: Label
-var prompt_label: Label
-var blink_timer := 0.0
+@onready var start_button: Button = $CenterContainer/VBoxContainer/StartButton
+@onready var quit_button: Button = $CenterContainer/VBoxContainer/QuitButton
+@onready var background_texture_rect: TextureRect = $BackgroundTextureRect
+@onready var logo_texture_rect: TextureRect = $CenterContainer/VBoxContainer/LogoTextureRect
 
+const TITLE_BG_PATH := "res://Sprites/Title Screen/title_v2_bg.png"
+const TITLE_LOGO_PATH := "res://Sprites/Title Screen/title_v2_logo.png"
+const TITLE_TRACK_PATH := "res://Sound Effects/Tile_screen.wav"
 
-func _init() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	mouse_filter = MOUSE_FILTER_IGNORE
-
-	# Dark retro background
-	var bg := ColorRect.new()
-	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.04, 0.05, 0.12, 1.0)
-	add_child(bg)
-
-	# Main Title
-	title_label = Label.new()
-	title_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	title_label.position += Vector2(-70, -40)
-	title_label.text = "MEGA DAD"
-	title_label.add_theme_color_override("font_color", Color(0.97, 0.85, 0.47)) # NES Gold
-	title_label.add_theme_font_size_override("font_size", 20)
-	add_child(title_label)
-
-	# Flashing Prompt
-	prompt_label = Label.new()
-	prompt_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	prompt_label.position += Vector2(-60, 20)
-	prompt_label.text = "- PRESS START -"
-	prompt_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-	prompt_label.add_theme_font_size_override("font_size", 10)
-	add_child(prompt_label)
+var title_music_player: AudioStreamPlayer
 
 
-func _process(delta: float) -> void:
-	blink_timer += delta
-	# Blink the prompt every 0.5 seconds
-	if prompt_label:
-		prompt_label.visible = int(blink_timer * 2.0) % 2 == 0
+func _ready() -> void:
+	_load_textures()
+	_connect_signals()
+	_setup_title_music()
 
-	# Listen for input to start the game
-	if Input.is_action_just_pressed("jump") or Input.is_action_just_pressed("shoot") or Input.is_action_just_pressed("move_right"):
-		start_game.emit()
+	if start_button != null:
+		start_button.grab_focus()
+
+
+func _load_textures() -> void:
+	if background_texture_rect != null:
+		background_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		background_texture_rect.stretch_mode = TextureRect.STRETCH_SCALE
+		if ResourceLoader.exists(TITLE_BG_PATH):
+			background_texture_rect.texture = load(TITLE_BG_PATH) as Texture2D
+
+	if logo_texture_rect != null:
+		logo_texture_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		logo_texture_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		if ResourceLoader.exists(TITLE_LOGO_PATH):
+			logo_texture_rect.texture = load(TITLE_LOGO_PATH) as Texture2D
+
+
+func _setup_title_music() -> void:
+	title_music_player = AudioStreamPlayer.new()
+	title_music_player.bus = &"Master" # Ensure it plays on the active master bus
+	add_child(title_music_player) # MUST add to tree before setting stream/playing in some Godot versions
+	
+	if ResourceLoader.exists(TITLE_TRACK_PATH):
+		var audio_res = load(TITLE_TRACK_PATH)
+		if audio_res is AudioStream:
+			title_music_player.stream = audio_res
+			title_music_player.play()
+			print("Playing title music successfully.")
+		else:
+			push_error("TitleScreen: Failed to load Title_screen.wav as an AudioStream.")
+	else:
+		push_error("TitleScreen: Title_screen.wav not found at path: " + TITLE_TRACK_PATH)
+
+
+func _connect_signals() -> void:
+	if start_button != null:
+		if not start_button.pressed.is_connected(_on_start_pressed):
+			start_button.pressed.connect(_on_start_pressed)
+
+	if quit_button != null:
+		if not quit_button.pressed.is_connected(_on_quit_pressed):
+			quit_button.pressed.connect(_on_quit_pressed)
+
+
+func _on_start_pressed() -> void:
+	print("Start button pressed! Triggering callback...")
+	
+	if title_music_player != null and title_music_player.playing:
+		title_music_player.stop()
+		title_music_player.queue_free()
+
+	if start_callback.is_valid():
+		start_callback.call()
+	else:
+		push_error("TitleScreen: start_callback is not assigned!")
+
+
+func _on_quit_pressed() -> void:
+	get_tree().quit()

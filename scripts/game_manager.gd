@@ -1,69 +1,94 @@
-class_name GameManagerClass
 extends Node
-## Global singleton managing score, player health, lives, kills, checkpoints, and audio.
+## Global GameManager handling score, lives, current level index, checkpoint positions, high scores, and audio streaming.
 
-const AUDIO_POOL_SIZE := 6
+signal score_changed(new_score: int)
+signal lives_changed(new_lives: int)
 
-var score := 0
-var enemies_killed := 0
+var score := 0:
+	set(val):
+		print("SCORE ", score, " -> ", val)
+		print_stack()
+		score = val
+		score_changed.emit(score)
+
+var player_lives := 3:
+	set(val):
+		player_lives = val
+		lives_changed.emit(player_lives)
+
 var player_health := 28
-var max_player_health := 28
-var player_lives := 3
-var checkpoint_pos := Vector2.ZERO
+var enemies_killed := 0
+var high_score := 0
 var current_level_index := 1
+var checkpoint_pos := Vector2.ZERO  # <--- Added this property to fix the Level._ready error
 
-# Audio streams mapped to your exact folder name "Sound Effects"
-var sfx_jump: AudioStream = preload("res://Sound Effects/Jump.wav")
-var sfx_hit: AudioStream = preload("res://Sound Effects/Hit.wav")
-var sfx_shoot: AudioStream = preload("res://Sound Effects/Shoot.wav")
+const SAVE_PATH := "user://savegame.save"
 
-# Name -> stream lookup (filled in _ready). Add new sounds here.
-var sounds := {}
-
-# Pool of players so a new sound does not cut off the previous one
-var audio_players: Array[AudioStreamPlayer] = []
-var _next_player := 0
+@export var sfx_pool_size := 8
+var sfx_players: Array[AudioStreamPlayer] = []
+var sound_library := {
+	"jump": preload("res://Sound Effects/Jump.wav"),
+	"shoot": preload("res://Sound Effects/Shoot.wav"),
+	"hit": preload("res://Sound Effects/Hit.wav")
+}
 
 
 func _ready() -> void:
-	sounds = {
-		"jump": sfx_jump,
-		"hit": sfx_hit,
-		"shoot": sfx_shoot,
-	}
-	for i in AUDIO_POOL_SIZE:
-		var p := AudioStreamPlayer.new()
-		add_child(p)
-		audio_players.append(p)
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	load_high_score()
+	
+	for i in range(sfx_pool_size):
+		var player := AudioStreamPlayer.new()
+		player.bus = &"Master"
+		add_child(player)
+		sfx_players.append(player)
 
+# Add this function to scripts/game_manager.gd
+func handle_player_death() -> void:
+	player_lives -= 1
+	if player_lives < 0:
+		reset_game()
+	else:
+		# If you want score to reset on death, uncomment the line below:
+		# score = 0
+		player_health = 28
 
-func play_sound(sfx_name: String) -> void:
-	var stream: AudioStream = sounds.get(sfx_name)
-	if stream == null or audio_players.is_empty():
+func play_sound(sound_name: String) -> void:
+	if not sound_library.has(sound_name):
 		return
-
-	var chosen: AudioStreamPlayer = null
-	for p in audio_players:
+	for p in sfx_players:
 		if not p.playing:
-			chosen = p
-			break
-	if chosen == null:
-		# All busy: steal the oldest one in round-robin order
-		chosen = audio_players[_next_player]
-		_next_player = (_next_player + 1) % audio_players.size()
+			p.stream = sound_library[sound_name]
+			p.play()
+			return
 
-	chosen.stream = stream
-	chosen.play()
+
+func trigger_hit_stop(duration_sec: float = 0.04) -> void:
+	Engine.time_scale = 0.0
+	await get_tree().create_timer(duration_sec, true, false, true).timeout
+	Engine.time_scale = 1.0
 
 
 func reset_game() -> void:
 	score = 0
-	enemies_killed = 0
-	player_health = max_player_health
 	player_lives = 3
-	checkpoint_pos = Vector2.ZERO
+	player_health = 28
+	enemies_killed = 0
 	current_level_index = 1
+	checkpoint_pos = Vector2.ZERO
+	Engine.time_scale = 1.0
 
 
-func reset_level_state() -> void:
-	player_health = max_player_health
+func save_high_score() -> void:
+	if score > high_score:
+		high_score = score
+		var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+		if file:
+			file.store_32(high_score)
+
+
+func load_high_score() -> void:
+	if FileAccess.file_exists(SAVE_PATH):
+		var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
+		if file:
+			high_score = file.get_32()

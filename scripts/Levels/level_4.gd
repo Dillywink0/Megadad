@@ -1,91 +1,123 @@
+
 class_name Level4
 extends Level
-## Stage 4: Ancient Crypt — Final gauntlet ending in the Boss Showdown.
+## Stage 4: Ancient Crypt
+## Final gauntlet leading to the boss showdown.
 
-var boss_spawn_pos := Vector2.ZERO
-var boss_triggered := false
+var boss_spawn_pos: Vector2 = Vector2.ZERO
+var boss_triggered: bool = false
 
 
 func _ready() -> void:
+	boss_spawn_pos = Vector2.ZERO
+	boss_triggered = false
+
 	active_level_data = {
 		"tile": "crypt",
 		"map": [
 			"................................................................................",
 			"................................................................................",
+			"..............BBBB..............................................................",
+			"..............I  I...................BBBB.......................................",
+			"........................V................I  I...................................",
+			"......#####.............V........#####.....................#####.................",
+			"........................V.........................................................",
+			"...E.............M......V.............F.............M............................",
+			"......#####.............V....#####.............#####..............................",
+			"....................^^^^^...................^^^^^....................#####........",
+			"....C...............#   #.......J...........#   #....................#   #........",
+			"P.............BBBB..#   #.............BBBB..#   #..........H.........#   #........",
+			"..............I  I..#####...................#####....................#####........",
+			"..........#####..............#####.....................#####.......................",
 			"................................................................................",
-			"................................................................................",
-			"................................................................................",
-			"................................................................................",
-			"................................................................................",
-			"........................................................................G.......",
-			"......................................................................#####.....",
-			"...................................................BBBB.............##....##....",
-			"..................................................I    I..........##........##..",
-			"..................^^^^^.....########...^^^^^...H2.M.......#..X....#..........#..",
-			".................#     #  M         #     #...........#......#....#..........#..",
-			"P...............#       #............#       #.........#........#....#..........#..",
+			"...............................................................X................",
 			"################################################################################",
 		]
 	}
+
+	# The base Level class handles parsing, collision, hazards,
+	# tile rendering, enemies, pickups and moving platforms.
 	super()
+
+	# Base _ready() calls _parse_map(), so the boss position
+	# is available here.
 	_setup_boss_arena()
 
 
 func _parse_map() -> void:
+	# Preserve all normal parsing behaviour from Level.
 	super()
-	# Scan map lines specifically for the Boss marker 'X'
+
+	# Find the boss marker in the hardcoded map.
+	boss_spawn_pos = Vector2.ZERO
+
 	var map_lines: Array = active_level_data["map"]
-	for y in map_lines.size():
+
+	for y in range(map_lines.size()):
 		var row: String = map_lines[y]
-		for x in row.length():
+
+		for x in range(row.length()):
 			if row[x] == "X":
-				boss_spawn_pos = Vector2(x * TILE + TILE / 2.0, (y + 1) * TILE)
+				boss_spawn_pos = Vector2(
+					x * TILE + TILE / 2.0,
+					(y + 1) * TILE
+				)
+				return
 
 
 func _setup_boss_arena() -> void:
 	if boss_spawn_pos == Vector2.ZERO:
+		push_error("Level4: Could not find boss marker X.")
 		return
 
-	# Create a trigger area before the boss arena
 	var trigger := Area2D.new()
-	trigger.position = boss_spawn_pos + Vector2(-120, 0)
+	trigger.name = "BossArenaTrigger"
+	trigger.position = boss_spawn_pos + Vector2(-128.0, 0.0)
 	trigger.collision_layer = 0
 	trigger.collision_mask = 2
+	trigger.monitoring = true
 
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(20, 100)
-	shape.shape = rect
-	shape.position = Vector2(0, -50)
-	trigger.add_child(shape)
 
-	trigger.body_entered.connect(func(body: Node2D) -> void:
-		if body is Player and not boss_triggered:
-			boss_triggered = true
-			trigger.queue_free()
-			_spawn_boss_encounter()
-	)
+	rect.size = Vector2(16.0, 96.0)
+	shape.shape = rect
+	shape.position = Vector2(0.0, -48.0)
+
+	trigger.add_child(shape)
+	trigger.body_entered.connect(_on_boss_trigger_entered)
+
 	add_child(trigger)
 
 
+func _on_boss_trigger_entered(body: Node2D) -> void:
+	if not body is Player:
+		return
+
+	if boss_triggered:
+		return
+
+	boss_triggered = true
+
+	var trigger := get_node_or_null("BossArenaTrigger")
+	if trigger != null:
+		trigger.queue_free()
+
+	_spawn_boss_encounter()
+
+
 func _spawn_boss_encounter() -> void:
-	# Show boss warning banner on HUD
-	for child in get_parent().get_children():
-		if child is Main and child.hud:
-			child.hud.show_message("WARNING: BOSS")
+	EventBus.show_message.emit("WARNING: BOSS", 1.5)
 
-	await get_tree().create_timer(1.5).timeout
-
-	for child in get_parent().get_children():
-		if child is Main and child.hud:
-			child.hud.show_message("")
-
-	# Spawn the actual boss
 	var boss := Boss.new()
+	boss.name = "CryptBoss"
 	boss.position = boss_spawn_pos
-	add_child(boss)
+	boss.boss_died.connect(_on_boss_defeated)
 
-	boss.boss_defeated.connect(func() -> void:
-		# Trigger stage win sequence on boss defeat
-		goal_reached.emit()
-	)
+	add_child(boss)
+	boss.activate_boss()
+
+
+func _on_boss_defeated() -> void:
+	# The boss defeat is the only way to complete this stage.
+	goal_reached.emit()

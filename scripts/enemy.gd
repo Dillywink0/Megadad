@@ -1,15 +1,15 @@
 class_name Enemy
 extends CharacterBody2D
-## Multi-behavior enemy utilizing structured character_Sprites asset subfolders with animated death frames.
+## Flexible enemy script supporting multiple variants, hit-stop feedback, shooting logic, and item drop rolls.
 
-const SPEED := 30.0
 const GRAVITY := 1000.0
-const CONTACT_DAMAGE := 3
 const TARGET_HEIGHT := 16.0
 
 @export var enemy_variant := 1  # 1: Walker, 2: Flyer, 3: Hopper, 4: Turret
 
 var hp := 2
+var contact_damage := 2
+var speed := 30.0
 var dir := -1
 var turn_cooldown := 0.2
 var flash := 0.0
@@ -17,43 +17,54 @@ var dying := false
 var time_passed := 0.0
 var jump_timer := 1.5
 var shoot_timer := 2.0
+var shoot_pose := 0.0
 
 var ledge_ray: RayCast2D
 var hitbox: Area2D
 var sprite: Sprite2D
 
-# Mapped paths to characters_Sprites subfolders
-var textures := {
-	1: preload("res://Sprites/characters_Sprites/walker/frames/walk_0.png"),
-	2: preload("res://Sprites/characters_Sprites/flyer/frames/fly_0.png"),
-	3: preload("res://Sprites/characters_Sprites/hopper/frames/jump_0.png"),
-	4: preload("res://Sprites/characters_Sprites/turret/frames/idle_0.png")
+var enemy_anim_frames := {
+	1: [
+		preload("res://Sprites/characters_Sprites/walker/frames/walk_0.png"),
+		preload("res://Sprites/characters_Sprites/walker/frames/walk_1.png")
+	],
+	2: [
+		preload("res://Sprites/characters_Sprites/flyer/frames/fly_0.png"),
+		preload("res://Sprites/characters_Sprites/flyer/frames/fly_1.png")
+	],
+	3: [
+		preload("res://Sprites/characters_Sprites/hopper/frames/jump_0.png"),
+		preload("res://Sprites/characters_Sprites/hopper/frames/crouch_0.png")
+	],
+	4: [
+		preload("res://Sprites/characters_Sprites/turret/frames/idle_0.png"),
+		preload("res://Sprites/characters_Sprites/turret/frames/shoot_0.png")
+	]
 }
 
-# Correct multi-frame death animation sequence arrays pointing to each enemy's specific subfolder
 var enemy_death_frames := {
-	1: [ # Walker
+	1: [
 		preload("res://Sprites/characters_Sprites/walker/frames/death_0.png"),
 		preload("res://Sprites/characters_Sprites/walker/frames/death_1.png"),
 		preload("res://Sprites/characters_Sprites/walker/frames/death_2.png"),
 		preload("res://Sprites/characters_Sprites/walker/frames/death_3.png"),
 		preload("res://Sprites/characters_Sprites/walker/frames/death_4.png")
 	],
-	2: [ # Flyer
+	2: [
 		preload("res://Sprites/characters_Sprites/flyer/frames/death_0.png"),
 		preload("res://Sprites/characters_Sprites/flyer/frames/death_1.png"),
 		preload("res://Sprites/characters_Sprites/flyer/frames/death_2.png"),
 		preload("res://Sprites/characters_Sprites/flyer/frames/death_3.png"),
 		preload("res://Sprites/characters_Sprites/flyer/frames/death_4.png")
 	],
-	3: [ # Hopper
+	3: [
 		preload("res://Sprites/characters_Sprites/hopper/frames/death_0.png"),
 		preload("res://Sprites/characters_Sprites/hopper/frames/death_1.png"),
 		preload("res://Sprites/characters_Sprites/hopper/frames/death_2.png"),
 		preload("res://Sprites/characters_Sprites/hopper/frames/death_3.png"),
 		preload("res://Sprites/characters_Sprites/hopper/frames/death_4.png")
 	],
-	4: [ # Turret
+	4: [
 		preload("res://Sprites/characters_Sprites/turret/frames/death_0.png"),
 		preload("res://Sprites/characters_Sprites/turret/frames/death_1.png"),
 		preload("res://Sprites/characters_Sprites/turret/frames/death_2.png"),
@@ -67,6 +78,13 @@ func _ready() -> void:
 	collision_layer = 4
 	collision_mask = 1
 
+	# Configure stats per variant
+	match enemy_variant:
+		1: hp = 2; speed = 30.0
+		2: hp = 2; speed = 35.0
+		3: hp = 3; speed = 25.0
+		4: hp = 4; speed = 0.0
+
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(14, 12)
@@ -75,14 +93,11 @@ func _ready() -> void:
 	add_child(shape)
 
 	sprite = Sprite2D.new()
-	sprite.texture = textures.get(enemy_variant, textures[1])
 	sprite.position = Vector2(0, -8)
-	if sprite.texture:
-		var tex_height := sprite.texture.get_height()
-		if tex_height > 0:
-			var s := TARGET_HEIGHT / float(tex_height)
-			sprite.scale = Vector2(s, s)
 	add_child(sprite)
+	
+	var frames: Array = enemy_anim_frames.get(enemy_variant, enemy_anim_frames[1])
+	_set_sprite_texture(frames[0])
 
 	hitbox = Area2D.new()
 	hitbox.collision_layer = 0
@@ -105,35 +120,35 @@ func _ready() -> void:
 
 func _physics_process(delta: float) -> void:
 	time_passed += delta
+	shoot_pose = maxf(shoot_pose - delta, 0.0)
 	
 	var camera = get_viewport().get_camera_2d()
-	if camera:
-		if absf(global_position.x - camera.global_position.x) > 180.0:
-			return
+	if camera and absf(global_position.x - camera.global_position.x) > 220.0:
+		return
 
 	turn_cooldown = maxf(turn_cooldown - delta, 0.0)
 	flash = maxf(flash - delta, 0.0)
 
 	match enemy_variant:
-		1: # Walker
+		1:
 			velocity.y = minf(velocity.y + GRAVITY * delta, 400.0)
-			velocity.x = dir * SPEED
+			velocity.x = dir * speed
 			if is_on_floor() and turn_cooldown <= 0.0:
 				if is_on_wall() or not ledge_ray.is_colliding():
 					_turn()
-		2: # Flyer
-			velocity.x = dir * SPEED
+		2:
+			velocity.x = dir * speed
 			velocity.y = sin(time_passed * 5.0) * 45.0
-		3: # Hopper
+		3:
 			velocity.y = minf(velocity.y + GRAVITY * delta, 400.0)
-			velocity.x = dir * (SPEED * 0.6)
+			velocity.x = dir * (speed * 0.6)
 			jump_timer -= delta
 			if is_on_floor() and jump_timer <= 0.0:
 				velocity.y = -240.0
 				jump_timer = randf_range(1.2, 2.2)
 			if is_on_floor() and turn_cooldown <= 0.0 and is_on_wall():
 				_turn()
-		4: # Turret
+		4:
 			velocity.x = 0
 			velocity.y = minf(velocity.y + GRAVITY * delta, 400.0)
 			shoot_timer -= delta
@@ -145,18 +160,46 @@ func _physics_process(delta: float) -> void:
 
 	for body in hitbox.get_overlapping_bodies():
 		if body is Player:
-			body.hurt(CONTACT_DAMAGE, global_position.x)
+			body.hurt(contact_damage, global_position.x)
 
 	sprite.modulate = Color(10, 10, 10) if flash > 0.0 else Color(1, 1, 1)
 	sprite.flip_h = (dir > 0)
+	_update_animation()
+
+
+func _update_animation() -> void:
+	var frames: Array = enemy_anim_frames.get(enemy_variant, enemy_anim_frames[1])
+	var active_tex = frames[0]
+	
+	match enemy_variant:
+		1, 2:
+			var frame_idx := int(time_passed * 8.0) % frames.size()
+			active_tex = frames[frame_idx]
+		3:
+			active_tex = frames[0] if not is_on_floor() else frames[1]
+		4:
+			active_tex = frames[1] if shoot_pose > 0.0 and frames.size() > 1 else frames[0]
+
+	_set_sprite_texture(active_tex)
+
+
+func _set_sprite_texture(tex: Texture2D) -> void:
+	if tex == null or sprite.texture == tex:
+		return
+	sprite.texture = tex
+	var tex_height := tex.get_height()
+	if tex_height > 0:
+		var s := TARGET_HEIGHT / float(tex_height)
+		sprite.scale = Vector2(s, s)
 
 
 func _shoot_bullet() -> void:
 	var players = get_tree().get_nodes_in_group("player")
 	if not players.is_empty():
 		var target = players[0]
-		dir = 1 if target.global_position.x > global_position.x else -1
+		dir = int(1 if target.global_position.x > global_position.x else -1)
 	
+	shoot_pose = 0.3
 	var bullet := Bullet.new()
 	bullet.direction = dir
 	bullet.collision_layer = 16
@@ -172,6 +215,8 @@ func take_damage(amount: int) -> void:
 	hp -= amount
 	flash = 0.1
 	GameManager.play_sound("hit")
+	GameManager.trigger_hit_stop(0.03) # Punchy impact hit-stop freeze
+	
 	if hp <= 0:
 		_die()
 
@@ -194,11 +239,12 @@ func _die() -> void:
 
 	var parent := get_parent()
 	if parent:
-		var popup := ScorePopup.new("100")
-		popup.global_position = global_position + Vector2(0, -8)
-		parent.add_child(popup)
+		if ClassDB.class_exists("ScorePopup"):
+			var popup := ScorePopup.new("100")
+			popup.global_position = global_position + Vector2(0, -8)
+			parent.add_child(popup)
 
-		# Spawn animated multi-frame death sequence for the exact enemy variant
+		# Animated multi-frame death sequence
 		var death_sprite := Sprite2D.new()
 		death_sprite.global_position = global_position + Vector2(0, -8)
 		parent.add_child(death_sprite)
@@ -206,7 +252,7 @@ func _die() -> void:
 		var frames: Array = enemy_death_frames.get(enemy_variant, enemy_death_frames[1])
 		for f in range(frames.size()):
 			var frame_tex = frames[f]
-			var delay = f * 0.08 # ~12 fps pacing
+			var delay = f * 0.08
 			get_tree().create_timer(delay).timeout.connect(func():
 				if is_instance_valid(death_sprite):
 					death_sprite.texture = frame_tex
@@ -219,12 +265,13 @@ func _die() -> void:
 		var timer := get_tree().create_timer(0.45)
 		timer.timeout.connect(func(): if is_instance_valid(death_sprite): death_sprite.queue_free())
 
-		for i in range(8):
-			var angle := randf_range(0.0, TAU)
-			var speed := randf_range(40.0, 120.0)
-			var p_vel := Vector2(cos(angle), sin(angle)) * speed
-			var particle := PixelParticle.new(p_vel, Color(0.99, 0.88, 0.66), 3.0)
-			particle.global_position = global_position + Vector2(0, -8)
-			parent.add_child(particle)
+		if ClassDB.class_exists("PixelParticle"):
+			for i in range(8):
+				var angle := randf_range(0.0, TAU)
+				var speed_val := randf_range(40.0, 120.0)
+				var p_vel := Vector2(cos(angle), sin(angle)) * speed_val
+				var particle := PixelParticle.new(p_vel, Color(0.99, 0.88, 0.66), 3.0)
+				particle.global_position = global_position + Vector2(0, -8)
+				parent.add_child(particle)
 
 	queue_free()
